@@ -34,7 +34,7 @@ Next check at 21:00
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/thirumalairaj/himalaya-notification.git
+git clone https://github.com/arimaone/himalaya-notification.git
 cd himalaya-notification
 ./install.sh
 ```
@@ -103,3 +103,22 @@ To cleanly stop, disable, and remove the systemd user timer:
 ```bash
 ./uninstall.sh
 ```
+
+---
+
+## Contributing
+
+Contributions, feedback, and ideas are warmly welcomed!
+
+- **Report bugs or suggest features**: Open an issue on GitHub.
+- **Submit improvements**: Fork the repository, create a feature branch, and submit a pull request.
+- **Run tests before opening a PR**:
+  ```bash
+  python3 -m unittest discover -s . -p "test_*.py" -v
+  ```
+
+---
+
+## License
+
+Distributed under the [MIT License](LICENSE). Built and maintained by [Arima](https://arima.one).
