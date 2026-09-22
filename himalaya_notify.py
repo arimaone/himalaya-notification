@@ -1,0 +1,335 @@
+#!/usr/bin/env python3
+"""
+Himalaya Notification Tool
+Counts emails received in the last N hours (default 3h) across all accounts
+and delivers a sleek FreeDesktop desktop notification without external dependencies.
+"""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timedelta, timezone
+import json
+import shutil
+import subprocess
+import sys
+from typing import Any, Dict, List, Union
+
+
+def get_accounts() -> List[str]:
+    """Fetch list of account names from himalaya."""
+    himalaya_bin = shutil.which("himalaya") or "/usr/local/bin/himalaya"
+    cmd = [himalaya_bin, "--quiet", "--output", "json", "account", "list"]
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    if res.returncode != 0:
+        raise RuntimeError(f"himalaya account list failed ({res.returncode}): {res.stderr.strip()}")
+
+    raw_output = res.stdout.strip()
+    if not raw_output:
+        return []
+
+    # Strip any potential warning lines before JSON payload if present
+    json_start = raw_output.find("[")
+    if json_start == -1:
+        raise ValueError(f"No JSON array found in account list output: {raw_output}")
+
+    accounts_data = json.loads(raw_output[json_start:])
+    accounts = [acc["name"] for acc in accounts_data if "name" in acc]
+    return accounts
+
+
+def parse_envelope_date(date_str: str) -> datetime:
+    """Parse himalaya envelope date string into a timezone-aware datetime object."""
+    date_str = date_str.strip()
+    try:
+        dt = datetime.fromisoformat(date_str)
+    except ValueError:
+        # Fallback for formats like '2026-09-22 07:42+05:30'
+        dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M%z")
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def count_recent_emails(
+    account: str,
+    cutoff: datetime,
+    timeout: int = 25,
+    page_size: int = 50,
+) -> int:
+    """
+    Fetch envelopes ordered by date descending and count those received >= cutoff.
+    Stops as soon as an envelope older than cutoff is encountered.
+    """
+    himalaya_bin = shutil.which("himalaya") or "/usr/local/bin/himalaya"
+    cmd = [
+        himalaya_bin,
+        "--quiet",
+        "--output",
+        "json",
+        "envelope",
+        "list",
+        "-a",
+        account,
+        "-s",
+        str(page_size),
+    ]
+
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if res.returncode != 0:
+        raise RuntimeError(f"himalaya envelope list failed for {account}: {res.stderr.strip()}")
+
+    raw_output = res.stdout.strip()
+    if not raw_output:
+        return 0
+
+    json_start = raw_output.find("[")
+    if json_start == -1:
+        raise ValueError(f"Invalid JSON returned for account {account}: {raw_output}")
+
+    envelopes = json.loads(raw_output[json_start:])
+    cutoff_utc = cutoff.astimezone(timezone.utc)
+
+    count = 0
+    for env in envelopes:
+        date_raw = env.get("date")
+        if not date_raw:
+            continue
+        try:
+            env_dt = parse_envelope_date(date_raw)
+        except Exception:
+            # If a single envelope date can't be parsed, skip it
+            continue
+
+        if env_dt.astimezone(timezone.utc) >= cutoff_utc:
+            count += 1
+        else:
+            # Envelopes are ordered descending; once older than cutoff, we stop
+            break
+
+    return count
+
+
+def format_notification(results: Dict[str, Union[int, str]]) -> tuple[str, str]:
+    """Format sleek notification title and body: 'account_name: count'."""
+    title = "Himalaya"
+    lines = [f"{acc}: {val}" for acc, val in results.items()]
+    body = "\n".join(lines)
+    return title, body
+
+
+def send_desktop_notification(
+    title: str,
+    body: str,
+    icon: str = "mail-unread",
+    expire_time_ms: int = 7000,
+) -> bool:
+    """
+    Send desktop notification using FreeDesktop specification.
+    Prefers notify-send if available, otherwise falls back to gdbus.
+    """
+    # 1. Try notify-send
+    notify_send = shutil.which("notify-send")
+    if notify_send:
+        cmd = [
+            notify_send,
+            "-a",
+            "Himalaya",
+            "-i",
+            icon,
+            "-t",
+            str(expire_time_ms),
+            title,
+            body,
+        ]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                return True
+        except Exception as e:
+            sys.stderr.write(f"notify-send failed: {e}\n")
+
+    # 2. Try gdbus (standard GLib / DBus client on virtually all Linux distros)
+    gdbus = shutil.which("gdbus")
+    if gdbus:
+        cmd = [
+            gdbus,
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.Notifications",
+            "--object-path",
+            "/org/freedesktop/Notifications",
+            "--method",
+            "org.freedesktop.Notifications.Notify",
+            "Himalaya",
+            "0",
+            icon,
+            title,
+            body,
+            "[]",
+            "{}",
+            str(expire_time_ms),
+        ]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                return True
+            else:
+                sys.stderr.write(f"gdbus notification call failed: {res.stderr.strip()}\n")
+        except Exception as e:
+            sys.stderr.write(f"gdbus call exception: {e}\n")
+
+    # 3. Try dbus-send
+    dbus_send = shutil.which("dbus-send")
+    if dbus_send:
+        cmd = [
+            dbus_send,
+            "--session",
+            "--print-reply",
+            "--dest=org.freedesktop.Notifications",
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications.Notify",
+            "string:Himalaya",
+            "uint32:0",
+            f"string:{icon}",
+            f"string:{title}",
+            f"string:{body}",
+            "array:string:",
+            "dict:string:string:",
+            f"int32:{expire_time_ms}",
+        ]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                return True
+        except Exception as e:
+            sys.stderr.write(f"dbus-send failed: {e}\n")
+
+    return False
+
+
+def check_emails(
+    hours: float = 3.0,
+    dry_run: bool = False,
+    quiet: bool = False,
+    accounts: list[str] | None = None,
+) -> Dict[str, Union[int, str]]:
+    """Execute the check across accounts with guardrails and dispatch notification."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=hours)
+
+    if not accounts:
+        try:
+            accounts = get_accounts()
+        except Exception as e:
+            sys.stderr.write(f"Failed to discover accounts: {e}\n")
+            accounts = []
+
+    results: Dict[str, Union[int, str]] = {}
+    if not accounts:
+        results["all"] = "ERR"
+    else:
+        for acc in accounts:
+            try:
+                count = count_recent_emails(acc, cutoff)
+                results[acc] = count
+            except Exception as e:
+                # Log detailed error for systemd journal / debugging
+                sys.stderr.write(f"Error fetching account '{acc}': {e}\n")
+                results[acc] = "ERR"
+
+    title, body = format_notification(results)
+
+    if not quiet:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {title}")
+        print(body)
+
+    if not dry_run:
+        sent = send_desktop_notification(title, body)
+        if not sent:
+            sys.stderr.write("Warning: Failed to send desktop notification.\n")
+
+    return results
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Himalaya email count notification tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Command: check
+    check_parser = subparsers.add_parser("check", help="Check emails and send notification")
+    check_parser.add_argument(
+        "--hours",
+        type=float,
+        default=3.0,
+        help="Window in hours to count emails (default: 3.0)",
+    )
+    check_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print output to stdout without sending a desktop notification",
+    )
+    check_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Do not print output to stdout",
+    )
+    check_parser.add_argument(
+        "--account",
+        "-a",
+        action="append",
+        dest="accounts",
+        help="Specific account(s) to check (can be specified multiple times)",
+    )
+
+    # Command: test-notify
+    subparsers.add_parser("test-notify", help="Send a test notification to verify setup")
+
+    # Command: status
+    subparsers.add_parser("status", help="Show systemd timer status and schedule")
+
+    args = parser.parse_args()
+
+    if args.command == "check" or args.command is None:
+        hours = getattr(args, "hours", 3.0)
+        dry_run = getattr(args, "dry_run", False)
+        quiet = getattr(args, "quiet", False)
+        accounts = getattr(args, "accounts", None)
+        results = check_emails(hours=hours, dry_run=dry_run, quiet=quiet, accounts=accounts)
+        # If any account errored, exit code 1 can be used if desired, but for cron/systemd
+        # we still successfully delivered the notification showing ERR, so return 0
+        return 0
+
+    elif args.command == "test-notify":
+        print("Sending test notification...")
+        sample_results = {"official": 0, "personal": 1}
+        title, body = format_notification(sample_results)
+        ok = send_desktop_notification(title, body)
+        if ok:
+            print("✓ Notification sent successfully.")
+            return 0
+        else:
+            print("✗ Failed to send notification. Check notification daemon and DBus session.")
+            return 1
+
+    elif args.command == "status":
+        systemctl = shutil.which("systemctl")
+        if not systemctl:
+            print("systemctl not found on this system.")
+            return 1
+        cmd = [systemctl, "--user", "status", "himalaya-notification.timer"]
+        res = subprocess.run(cmd)
+        return res.returncode
+
+    else:
+        parser.print_help()
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

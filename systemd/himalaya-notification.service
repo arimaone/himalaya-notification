@@ -1,0 +1,9 @@
+[Unit]
+Description=Himalaya email count notification check
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 {{SCRIPT_PATH}} check --quiet
+StandardOutput=journal
+StandardError=journal
