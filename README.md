@@ -109,6 +109,17 @@ To cleanly stop, disable, and remove the systemd user timer:
 
 ---
 
+## Roadmap
+
+Our core philosophy is to keep this tool **sleek, lightweight, and 100% dependency-free** (Python standard library and native Linux utilities only — no pip packages, no external daemons).
+
+We track planned features, enhancement proposals, and community discussions directly through GitHub Issues:
+👉 **[View the Active Project Roadmap](https://github.com/arimaone/himalaya-notification/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap)**
+
+Have an idea that fits this philosophy? Open an issue or join the discussions!
+
+---
+
 ## Contributing
 
 Contributions, feedback, and ideas are warmly welcomed!
