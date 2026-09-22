@@ -1,5 +1,8 @@
 # Himalaya Email Notification
 
+[![CI](https://github.com/arimaone/himalaya-notification/actions/workflows/ci.yml/badge.svg)](https://github.com/arimaone/himalaya-notification/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A lightweight, OS-agnostic, zero-dependency periodic email notification tool for [`himalaya-cli`](https://github.com/pimalaya/himalaya).
 
 It runs in the background every 3 hours, checks all configured accounts, counts emails received within that 3-hour window, and sends a sleek desktop notification.
