@@ -5,16 +5,22 @@ A lightweight, OS-agnostic, zero-dependency periodic email notification tool for
 It runs in the background every 3 hours, checks all configured accounts, counts emails received within that 3-hour window, and sends a sleek desktop notification.
 
 ```
-Himalaya
-official: 2
-personal: 0
+Himalaya (App banner)
+16:25 – 19:25
+
+ 2  Official
+ 0  Personal
+
+Next check at 21:00
 ```
 
 ---
 
 ## Features
 
-- **Sleek & Minimal**: Displays clean `account: count` per account.
+- **Exact Time Window**: Shows the precise 3-hour period inspected (e.g. `16:25 – 19:25`).
+- **2-Column Monospace Table**: Count right-aligned, account name left-aligned with monospaced precision.
+- **Next Check Schedule**: Footer indicates when the next 3-hour systemd check will run.
 - **Error Guardrails**: Isolated per-account error handling with timeouts. Shows `ERR` if an account query fails or times out—only displays `0` when zero emails were verified.
 - **OS Agnostic (Universal Linux)**: Uses FreeDesktop Notifications (`org.freedesktop.Notifications`) with multi-tier fallback (`notify-send` -> `gdbus` -> `dbus-send`). Compatible with COSMIC, GNOME, KDE Plasma, XFCE, Sway, Hyprland, i3, etc.
 - **No `sudo` Required**: Operates 100% in user-space (`~/.config/systemd/user`).

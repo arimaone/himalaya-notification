@@ -111,11 +111,44 @@ def count_recent_emails(
     return count
 
 
-def format_notification(results: Dict[str, Union[int, str]]) -> tuple[str, str]:
-    """Format sleek notification title and body: 'account_name: count'."""
-    title = "Himalaya"
-    lines = [f"{acc}: {val}" for acc, val in results.items()]
-    body = "\n".join(lines)
+def get_next_schedule_time(now: datetime) -> str:
+    """Calculate the next 3-hour boundary (00:00, 03:00, ..., 21:00) in local time."""
+    next_hour = ((now.hour // 3) + 1) * 3
+    if next_hour >= 24:
+        return "00:00"
+    return f"{next_hour:02d}:00"
+
+
+def format_notification(
+    results: Dict[str, Union[int, str]],
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+) -> tuple[str, str]:
+    """
+    Format notification:
+    - Title: exact time window, e.g. '16:25 – 19:25'
+    - Body: 2-column monospace table (right-aligned count, left-aligned account)
+    - Footer: 'Next check at HH:MM'
+    """
+    if end_time is None:
+        end_time = datetime.now()
+    if start_time is None:
+        start_time = end_time - timedelta(hours=3)
+
+    time_fmt = "%H:%M"
+    title = f"{start_time.strftime(time_fmt)} \u2013 {end_time.strftime(time_fmt)}"
+
+    if not results:
+        body = "<tt>--  No accounts</tt>"
+    else:
+        max_width = max(len(str(val)) for val in results.values())
+        max_width = max(max_width, 2)  # at least 2 chars for clean alignment
+
+        lines = [f"{str(val).rjust(max_width)}  {acc.capitalize()}" for acc, val in results.items()]
+        table = "<tt>" + "\n".join(lines) + "</tt>"
+        next_check = get_next_schedule_time(end_time)
+        body = f"{table}\n\nNext check at {next_check}"
+
     return title, body
 
 
@@ -217,8 +250,11 @@ def check_emails(
     accounts: list[str] | None = None,
 ) -> Dict[str, Union[int, str]]:
     """Execute the check across accounts with guardrails and dispatch notification."""
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(hours=hours)
+    now_utc = datetime.now(timezone.utc)
+    cutoff = now_utc - timedelta(hours=hours)
+
+    now_local = datetime.now()
+    start_local = now_local - timedelta(hours=hours)
 
     if not accounts:
         try:
@@ -240,7 +276,7 @@ def check_emails(
                 sys.stderr.write(f"Error fetching account '{acc}': {e}\n")
                 results[acc] = "ERR"
 
-    title, body = format_notification(results)
+    title, body = format_notification(results, start_time=start_local, end_time=now_local)
 
     if not quiet:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {title}")
@@ -307,8 +343,10 @@ def main() -> int:
 
     elif args.command == "test-notify":
         print("Sending test notification...")
-        sample_results = {"official": 0, "personal": 1}
-        title, body = format_notification(sample_results)
+        sample_results = {"official": 2, "personal": 0}
+        now_local = datetime.now()
+        start_local = now_local - timedelta(hours=3)
+        title, body = format_notification(sample_results, start_time=start_local, end_time=now_local)
         ok = send_desktop_notification(title, body)
         if ok:
             print("✓ Notification sent successfully.")

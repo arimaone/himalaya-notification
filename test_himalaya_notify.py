@@ -12,6 +12,7 @@ from himalaya_notify import (
     check_emails,
     count_recent_emails,
     format_notification,
+    get_next_schedule_time,
     parse_envelope_date,
     send_desktop_notification,
 )
@@ -37,20 +38,40 @@ class TestHimalayaNotify(unittest.TestCase):
         dt3 = parse_envelope_date("2026-09-22 04:10+00:00")
         self.assertEqual(dt3.utcoffset().total_seconds(), 0)
 
-    def test_format_notification_sleek(self):
-        # Test sleek format: account: count
+    def test_get_next_schedule_time(self):
+        # Test 3-hour boundaries
+        self.assertEqual(get_next_schedule_time(datetime(2026, 9, 22, 19, 25)), "21:00")
+        self.assertEqual(get_next_schedule_time(datetime(2026, 9, 22, 21, 0)), "00:00")
+        self.assertEqual(get_next_schedule_time(datetime(2026, 9, 22, 23, 45)), "00:00")
+        self.assertEqual(get_next_schedule_time(datetime(2026, 9, 22, 1, 15)), "03:00")
+        self.assertEqual(get_next_schedule_time(datetime(2026, 9, 22, 3, 0)), "06:00")
+
+    def test_format_notification_layout(self):
+        start = datetime(2026, 9, 22, 16, 30)
+        end = datetime(2026, 9, 22, 19, 30)
         results = {"official": 2, "personal": 0}
-        title, body = format_notification(results)
-        self.assertEqual(title, "Himalaya")
-        expected_body = "official: 2\npersonal: 0"
+
+        title, body = format_notification(results, start_time=start, end_time=end)
+        self.assertEqual(title, "16:30 – 19:30")
+        expected_body = (
+            "<tt> 2  Official\n"
+            " 0  Personal</tt>\n\n"
+            "Next check at 21:00"
+        )
         self.assertEqual(body, expected_body)
 
-    def test_format_notification_with_err(self):
-        # Test sleek format with ERR
+    def test_format_notification_with_err_alignment(self):
+        start = datetime(2026, 9, 22, 16, 30)
+        end = datetime(2026, 9, 22, 19, 30)
         results = {"official": 2, "personal": "ERR"}
-        title, body = format_notification(results)
-        self.assertEqual(title, "Himalaya")
-        expected_body = "official: 2\npersonal: ERR"
+
+        title, body = format_notification(results, start_time=start, end_time=end)
+        self.assertEqual(title, "16:30 – 19:30")
+        expected_body = (
+            "<tt>  2  Official\n"
+            "ERR  Personal</tt>\n\n"
+            "Next check at 21:00"
+        )
         self.assertEqual(body, expected_body)
 
     @patch("himalaya_notify.subprocess.run")
