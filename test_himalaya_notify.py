@@ -135,6 +135,48 @@ class TestHimalayaNotify(unittest.TestCase):
         self.assertEqual(results["acc_zero"], 0)
         self.assertEqual(results["acc_fail"], "ERR")
 
+    def test_format_notification_with_off_alignment(self):
+        start = datetime(2026, 9, 22, 16, 30)
+        end = datetime(2026, 9, 22, 19, 30)
+        results = {"official": "OFF", "personal": "OFF"}
+
+        title, body = format_notification(results, start_time=start, end_time=end)
+        self.assertEqual(title, "16:30 – 19:30")
+        expected_body = (
+            "<tt>OFF  Official\n"
+            "OFF  Personal</tt>\n\n"
+            "Next check at 21:00"
+        )
+        self.assertEqual(body, expected_body)
+
+    @patch("himalaya_notify.socket.create_connection")
+    @patch("himalaya_notify.socket.gethostbyname")
+    def test_is_online_success(self, mock_dns, mock_conn):
+        mock_conn.return_value = MagicMock()
+        mock_dns.return_value = "142.250.190.109"
+        from himalaya_notify import is_online
+        self.assertTrue(is_online(max_wait=0.1))
+
+    @patch("himalaya_notify.socket.create_connection")
+    def test_is_online_failure(self, mock_conn):
+        mock_conn.side_effect = OSError("Network unreachable")
+        from himalaya_notify import is_online
+        self.assertFalse(is_online(max_wait=0.1))
+
+    @patch("himalaya_notify.is_online")
+    @patch("himalaya_notify.get_accounts")
+    @patch("himalaya_notify.count_recent_emails")
+    def test_check_emails_offline_marks_off(self, mock_count, mock_accounts, mock_online):
+        mock_online.return_value = False
+        mock_accounts.return_value = ["official", "personal"]
+
+        results = check_emails(hours=3.0, dry_run=True, quiet=True)
+
+        self.assertEqual(results["official"], "OFF")
+        self.assertEqual(results["personal"], "OFF")
+        # Ensure himalaya is never called when offline
+        mock_count.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

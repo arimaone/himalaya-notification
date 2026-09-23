@@ -11,9 +11,36 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import json
 import shutil
+import socket
 import subprocess
 import sys
+import time
 from typing import Any, Dict, List, Union
+
+
+def is_online(
+    max_wait: float = 10.0,
+    host: str = "1.1.1.1",
+    port: int = 53,
+    dns_host: str = "imap.gmail.com",
+) -> bool:
+    """
+    Check if internet connectivity and DNS resolution are active.
+    Polls up to max_wait seconds to allow Wi-Fi and DNS to settle after machine wake-up.
+    """
+    start_time = time.time()
+    while True:
+        try:
+            with socket.create_connection((host, port), timeout=2.0):
+                pass
+            socket.gethostbyname(dns_host)
+            return True
+        except OSError:
+            if time.time() - start_time + 1.0 <= max_wait:
+                time.sleep(1.0)
+            else:
+                break
+    return False
 
 
 def get_accounts() -> List[str]:
@@ -266,6 +293,10 @@ def check_emails(
     results: Dict[str, Union[int, str]] = {}
     if not accounts:
         results["all"] = "ERR"
+    elif not is_online(max_wait=10.0):
+        sys.stderr.write("Network offline: Internet connectivity or DNS resolution unavailable after wait period.\n")
+        for acc in accounts:
+            results[acc] = "OFF"
     else:
         for acc in accounts:
             try:

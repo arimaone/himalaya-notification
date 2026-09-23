@@ -24,7 +24,11 @@ Next check at 21:00
 - **Exact Time Window**: Shows the precise 3-hour period inspected (e.g. `16:25 – 19:25`).
 - **2-Column Monospace Table**: Count right-aligned, account name left-aligned with monospaced precision.
 - **Next Check Schedule**: Footer indicates when the next 3-hour systemd check will run.
-- **Error Guardrails**: Isolated per-account error handling with timeouts. Shows `ERR` if an account query fails or times out—only displays `0` when zero emails were verified.
+- **3-Tier Status System**:
+  - `Numbers` (e.g. ` 0`, ` 2`): Verified email count from a successful query.
+  - `ERR`: Account-specific issue (authentication failure, timeout, mailbox error).
+  - `OFF`: Global internet or DNS disconnected.
+- **Pre-Flight Network Probe**: Zero-dependency socket & DNS check that waits up to 10s for Wi-Fi/DHCP to settle upon waking from laptop sleep, eliminating transient DNS errors.
 - **OS Agnostic (Universal Linux)**: Uses FreeDesktop Notifications (`org.freedesktop.Notifications`) with multi-tier fallback (`notify-send` -> `gdbus` -> `dbus-send`). Compatible with COSMIC, GNOME, KDE Plasma, XFCE, Sway, Hyprland, i3, etc.
 - **No `sudo` Required**: Operates 100% in user-space (`~/.config/systemd/user`).
 - **Zero External Dependencies**: Powered purely by Python 3 standard library.
