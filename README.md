@@ -48,6 +48,15 @@ cd himalaya-notification
 
 `install.sh` runs prerequisite checks (Python 3.8+, `himalaya`, configured accounts, DBus notifications, and user systemd) before configuring and activating the systemd timer.
 
+### 2. Updating
+
+To update to the latest version and reload the systemd timer:
+
+```bash
+./himalaya_notify.py update
+```
+*(Or manually via Git: `git pull && ./install.sh`)*
+
 ---
 
 ## Manual Usage & CLI Options
@@ -69,6 +78,9 @@ You can invoke the script directly anytime:
 
 # Send a test desktop notification to verify desktop popup
 ./himalaya_notify.py test-notify
+
+# Pull latest updates from Git and reload systemd service
+./himalaya_notify.py update
 
 # View systemd timer status and next schedule
 ./himalaya_notify.py status

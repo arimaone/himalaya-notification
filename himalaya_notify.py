@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
+from pathlib import Path
 import shutil
 import socket
 import subprocess
@@ -321,6 +322,35 @@ def check_emails(
     return results
 
 
+def update_self() -> int:
+    """
+    Pull latest changes from git and reload/restart systemd user timer.
+    """
+    repo_dir = Path(__file__).resolve().parent
+    git_bin = shutil.which("git")
+    if not git_bin:
+        sys.stderr.write("git binary not found. Please install git or pull changes manually.\n")
+        return 1
+
+    print("Pulling latest changes from Git...")
+    res = subprocess.run([git_bin, "-C", str(repo_dir), "pull"], capture_output=True, text=True)
+    if res.returncode != 0:
+        sys.stderr.write(f"git pull failed:\n{res.stderr.strip()}\n")
+        return 1
+
+    print(res.stdout.strip())
+
+    systemctl = shutil.which("systemctl")
+    if systemctl:
+        print("Reloading systemd user daemon and restarting timer...")
+        subprocess.run([systemctl, "--user", "daemon-reload"], capture_output=True)
+        subprocess.run([systemctl, "--user", "restart", "himalaya-notification.timer"], capture_output=True)
+        print("✓ Systemd timer reloaded and active.")
+
+    print("✓ himalaya-notification is up to date!")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Himalaya email count notification tool",
@@ -360,6 +390,9 @@ def main() -> int:
     # Command: status
     subparsers.add_parser("status", help="Show systemd timer status and schedule")
 
+    # Command: update
+    subparsers.add_parser("update", help="Pull latest updates from Git and reload systemd service")
+
     args = parser.parse_args()
 
     if args.command == "check" or args.command is None:
@@ -394,6 +427,9 @@ def main() -> int:
         cmd = [systemctl, "--user", "status", "himalaya-notification.timer"]
         res = subprocess.run(cmd)
         return res.returncode
+
+    elif args.command == "update":
+        return update_self()
 
     else:
         parser.print_help()

@@ -177,6 +177,22 @@ class TestHimalayaNotify(unittest.TestCase):
         # Ensure himalaya is never called when offline
         mock_count.assert_not_called()
 
+    @patch("himalaya_notify.subprocess.run")
+    @patch("himalaya_notify.shutil.which")
+    def test_update_self_success(self, mock_which, mock_run):
+        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
+        mock_run.return_value = MagicMock(returncode=0, stdout="Already up to date.", stderr="")
+        from himalaya_notify import update_self
+        self.assertEqual(update_self(), 0)
+
+    @patch("himalaya_notify.subprocess.run")
+    @patch("himalaya_notify.shutil.which")
+    def test_update_self_git_failure(self, mock_which, mock_run):
+        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Could not resolve host")
+        from himalaya_notify import update_self
+        self.assertEqual(update_self(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
