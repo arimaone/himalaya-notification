@@ -325,21 +325,41 @@ def check_emails(
 def update_self() -> int:
     """
     Pull latest changes from git (main branch) and reload/restart systemd user timer.
+    Synchronizes systemd unit files if previously installed.
     """
     repo_dir = Path(__file__).resolve().parent
     git_bin = shutil.which("git")
     if not git_bin:
-        sys.stderr.write("git binary not found. Please install git or pull changes manually.\n")
+        sys.stderr.write("git binary not found. Please install git or update manually.\n")
         return 1
 
-    # 1. Guard: Check for uncommitted changes
+    # 1. Guard: Check if repo_dir is inside a git working tree
+    is_repo = subprocess.run([git_bin, "-C", str(repo_dir), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True)
+    if is_repo.returncode != 0 or is_repo.stdout.strip() != "true":
+        sys.stderr.write(f"Error: {repo_dir} is not a Git repository.\n"
+                         "If you installed from a zip/tarball, please update manually or clone via Git:\n"
+                         "  git clone https://github.com/arimaone/himalaya-notification.git\n")
+        return 1
+
+    # 2. Guard: Check for uncommitted changes
     status_res = subprocess.run([git_bin, "-C", str(repo_dir), "status", "--porcelain"], capture_output=True, text=True)
+    if status_res.returncode != 0:
+        sys.stderr.write(f"Error checking git status:\n{status_res.stderr.strip()}\n")
+        return 1
     if status_res.stdout.strip():
         sys.stderr.write("Error: You have uncommitted changes in your repository.\n"
                          "Please commit, stash, or discard them before updating.\n")
         return 1
 
-    # 2. Check current branch and ensure we are on main
+    # 3. Detect primary remote
+    remotes_res = subprocess.run([git_bin, "-C", str(repo_dir), "remote"], capture_output=True, text=True)
+    remotes = remotes_res.stdout.split()
+    remote = "origin" if "origin" in remotes else (remotes[0] if remotes else None)
+    if not remote:
+        sys.stderr.write("Error: No git remote configured for this repository.\n")
+        return 1
+
+    # 4. Check current branch and ensure we are on main
     branch_res = subprocess.run([git_bin, "-C", str(repo_dir), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True)
     current_branch = branch_res.stdout.strip()
     if current_branch != "main":
@@ -349,21 +369,54 @@ def update_self() -> int:
             sys.stderr.write(f"Failed to switch to main branch:\n{co_res.stderr.strip()}\n")
             return 1
 
-    # 3. Pull latest changes from origin main
-    print("Pulling latest changes from origin/main...")
-    res = subprocess.run([git_bin, "-C", str(repo_dir), "pull", "origin", "main"], capture_output=True, text=True)
+    # 5. Pull latest changes from upstream main (fast-forward only)
+    print(f"Pulling latest changes from {remote}/main...")
+    res = subprocess.run([git_bin, "-C", str(repo_dir), "pull", "--ff-only", remote, "main"], capture_output=True, text=True)
     if res.returncode != 0:
-        sys.stderr.write(f"git pull failed:\n{res.stderr.strip()}\n")
+        err = res.stderr.strip() or res.stdout.strip()
+        sys.stderr.write(f"git pull failed:\n{err}\n")
         return 1
 
-    print(res.stdout.strip())
+    if res.stdout.strip():
+        print(res.stdout.strip())
 
+    # Ensure executable permission on himalaya_notify.py
+    script_path = (repo_dir / "himalaya_notify.py").resolve()
+    try:
+        script_path.chmod(script_path.stat().st_mode | 0o111)
+    except OSError:
+        pass
+
+    # 6. Synchronize systemd user units if installed
+    user_systemd_dir = Path.home() / ".config" / "systemd" / "user"
+    installed_service = user_systemd_dir / "himalaya-notification.service"
+    installed_timer = user_systemd_dir / "himalaya-notification.timer"
+
+    service_template = repo_dir / "systemd" / "himalaya-notification.service"
+    timer_source = repo_dir / "systemd" / "himalaya-notification.timer"
+
+    if installed_service.exists() and service_template.exists():
+        try:
+            content = service_template.read_text(encoding="utf-8")
+            installed_service.write_text(content.replace("{{SCRIPT_PATH}}", str(script_path)), encoding="utf-8")
+        except OSError as e:
+            sys.stderr.write(f"Warning: Could not update systemd service unit: {e}\n")
+
+    if installed_timer.exists() and timer_source.exists():
+        try:
+            installed_timer.write_text(timer_source.read_text(encoding="utf-8"), encoding="utf-8")
+        except OSError as e:
+            sys.stderr.write(f"Warning: Could not update systemd timer unit: {e}\n")
+
+    # 7. Reload systemd user daemon and restart timer if available
     systemctl = shutil.which("systemctl")
-    if systemctl:
+    if systemctl and installed_timer.exists():
         print("Reloading systemd user daemon and restarting timer...")
         subprocess.run([systemctl, "--user", "daemon-reload"], capture_output=True)
         subprocess.run([systemctl, "--user", "restart", "himalaya-notification.timer"], capture_output=True)
         print("✓ Systemd timer reloaded and active.")
+    elif not installed_timer.exists():
+        print("ℹ Note: Systemd user timer is not currently installed. Run ./install.sh to activate the 3-hour timer.")
 
     print("✓ himalaya-notification is up to date!")
     return 0

@@ -179,12 +179,39 @@ class TestHimalayaNotify(unittest.TestCase):
 
     @patch("himalaya_notify.subprocess.run")
     @patch("himalaya_notify.shutil.which")
+    def test_update_self_not_a_git_repo(self, mock_which, mock_run):
+        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
+        mock_run.return_value = MagicMock(returncode=128, stdout="", stderr="fatal: not a git repository")
+        from himalaya_notify import update_self
+        self.assertEqual(update_self(), 1)
+
+    @patch("himalaya_notify.subprocess.run")
+    @patch("himalaya_notify.shutil.which")
+    def test_update_self_dirty_tree_aborts(self, mock_which, mock_run):
+        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
+        def fake_run(args, **kwargs):
+            if "--is-inside-work-tree" in args:
+                return MagicMock(returncode=0, stdout="true\n", stderr="")
+            if "status" in args:
+                return MagicMock(returncode=0, stdout=" M himalaya_notify.py\n", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = fake_run
+
+        from himalaya_notify import update_self
+        self.assertEqual(update_self(), 1)
+
+    @patch("himalaya_notify.subprocess.run")
+    @patch("himalaya_notify.shutil.which")
     def test_update_self_success_on_main(self, mock_which, mock_run):
         mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
         def fake_run(args, **kwargs):
+            if "--is-inside-work-tree" in args:
+                return MagicMock(returncode=0, stdout="true\n", stderr="")
             if "status" in args:
                 return MagicMock(returncode=0, stdout="", stderr="")
-            if "rev-parse" in args:
+            if "remote" in args:
+                return MagicMock(returncode=0, stdout="origin\n", stderr="")
+            if "--abbrev-ref" in args:
                 return MagicMock(returncode=0, stdout="main\n", stderr="")
             if "pull" in args:
                 return MagicMock(returncode=0, stdout="Already up to date.", stderr="")
@@ -201,9 +228,13 @@ class TestHimalayaNotify(unittest.TestCase):
         calls = []
         def fake_run(args, **kwargs):
             calls.append(args)
+            if "--is-inside-work-tree" in args:
+                return MagicMock(returncode=0, stdout="true\n", stderr="")
             if "status" in args:
                 return MagicMock(returncode=0, stdout="", stderr="")
-            if "rev-parse" in args:
+            if "remote" in args:
+                return MagicMock(returncode=0, stdout="origin\n", stderr="")
+            if "--abbrev-ref" in args:
                 return MagicMock(returncode=0, stdout="feat/other-branch\n", stderr="")
             if "checkout" in args:
                 return MagicMock(returncode=0, stdout="", stderr="")
@@ -218,28 +249,58 @@ class TestHimalayaNotify(unittest.TestCase):
 
     @patch("himalaya_notify.subprocess.run")
     @patch("himalaya_notify.shutil.which")
-    def test_update_self_dirty_tree_aborts(self, mock_which, mock_run):
-        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
-        mock_run.return_value = MagicMock(returncode=0, stdout=" M himalaya_notify.py\n", stderr="")
-        from himalaya_notify import update_self
-        self.assertEqual(update_self(), 1)
-
-    @patch("himalaya_notify.subprocess.run")
-    @patch("himalaya_notify.shutil.which")
     def test_update_self_git_pull_failure(self, mock_which, mock_run):
         mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
         def fake_run(args, **kwargs):
+            if "--is-inside-work-tree" in args:
+                return MagicMock(returncode=0, stdout="true\n", stderr="")
             if "status" in args:
                 return MagicMock(returncode=0, stdout="", stderr="")
-            if "rev-parse" in args:
+            if "remote" in args:
+                return MagicMock(returncode=0, stdout="origin\n", stderr="")
+            if "--abbrev-ref" in args:
                 return MagicMock(returncode=0, stdout="main\n", stderr="")
             if "pull" in args:
-                return MagicMock(returncode=1, stdout="", stderr="Could not resolve host")
+                return MagicMock(returncode=1, stdout="", stderr="fatal: Not possible to fast-forward")
             return MagicMock(returncode=0, stdout="", stderr="")
         mock_run.side_effect = fake_run
 
         from himalaya_notify import update_self
         self.assertEqual(update_self(), 1)
+
+    @patch("himalaya_notify.subprocess.run")
+    @patch("himalaya_notify.shutil.which")
+    def test_update_self_syncs_systemd_units(self, mock_which, mock_run):
+        import tempfile
+        from pathlib import Path
+        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
+        def fake_run(args, **kwargs):
+            if "--is-inside-work-tree" in args:
+                return MagicMock(returncode=0, stdout="true\n", stderr="")
+            if "status" in args:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if "remote" in args:
+                return MagicMock(returncode=0, stdout="origin\n", stderr="")
+            if "--abbrev-ref" in args:
+                return MagicMock(returncode=0, stdout="main\n", stderr="")
+            if "pull" in args:
+                return MagicMock(returncode=0, stdout="Fast-forward", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = fake_run
+
+        with tempfile.TemporaryDirectory() as tmp_home:
+            user_systemd = Path(tmp_home) / ".config" / "systemd" / "user"
+            user_systemd.mkdir(parents=True)
+            srv = user_systemd / "himalaya-notification.service"
+            srv.write_text("old service content")
+            tmr = user_systemd / "himalaya-notification.timer"
+            tmr.write_text("old timer content")
+
+            with patch("pathlib.Path.home", return_value=Path(tmp_home)):
+                from himalaya_notify import update_self
+                self.assertEqual(update_self(), 0)
+                self.assertIn("ExecStart=", srv.read_text())
+                self.assertIn("OnCalendar=", tmr.read_text())
 
 
 if __name__ == "__main__":
