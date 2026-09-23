@@ -55,7 +55,7 @@ To update to the latest version and reload the systemd timer:
 ```bash
 ./himalaya_notify.py update
 ```
-*(Or manually via Git: `git pull && ./install.sh`)*
+*(Or manually via Git: `git checkout main && git pull origin main && ./install.sh`)*
 
 ---
 

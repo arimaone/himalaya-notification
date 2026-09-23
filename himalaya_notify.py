@@ -324,7 +324,7 @@ def check_emails(
 
 def update_self() -> int:
     """
-    Pull latest changes from git and reload/restart systemd user timer.
+    Pull latest changes from git (main branch) and reload/restart systemd user timer.
     """
     repo_dir = Path(__file__).resolve().parent
     git_bin = shutil.which("git")
@@ -332,8 +332,26 @@ def update_self() -> int:
         sys.stderr.write("git binary not found. Please install git or pull changes manually.\n")
         return 1
 
-    print("Pulling latest changes from Git...")
-    res = subprocess.run([git_bin, "-C", str(repo_dir), "pull"], capture_output=True, text=True)
+    # 1. Guard: Check for uncommitted changes
+    status_res = subprocess.run([git_bin, "-C", str(repo_dir), "status", "--porcelain"], capture_output=True, text=True)
+    if status_res.stdout.strip():
+        sys.stderr.write("Error: You have uncommitted changes in your repository.\n"
+                         "Please commit, stash, or discard them before updating.\n")
+        return 1
+
+    # 2. Check current branch and ensure we are on main
+    branch_res = subprocess.run([git_bin, "-C", str(repo_dir), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True)
+    current_branch = branch_res.stdout.strip()
+    if current_branch != "main":
+        print(f"Switching from '{current_branch}' to 'main' branch...")
+        co_res = subprocess.run([git_bin, "-C", str(repo_dir), "checkout", "main"], capture_output=True, text=True)
+        if co_res.returncode != 0:
+            sys.stderr.write(f"Failed to switch to main branch:\n{co_res.stderr.strip()}\n")
+            return 1
+
+    # 3. Pull latest changes from origin main
+    print("Pulling latest changes from origin/main...")
+    res = subprocess.run([git_bin, "-C", str(repo_dir), "pull", "origin", "main"], capture_output=True, text=True)
     if res.returncode != 0:
         sys.stderr.write(f"git pull failed:\n{res.stderr.strip()}\n")
         return 1

@@ -179,17 +179,65 @@ class TestHimalayaNotify(unittest.TestCase):
 
     @patch("himalaya_notify.subprocess.run")
     @patch("himalaya_notify.shutil.which")
-    def test_update_self_success(self, mock_which, mock_run):
+    def test_update_self_success_on_main(self, mock_which, mock_run):
         mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
-        mock_run.return_value = MagicMock(returncode=0, stdout="Already up to date.", stderr="")
+        def fake_run(args, **kwargs):
+            if "status" in args:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if "rev-parse" in args:
+                return MagicMock(returncode=0, stdout="main\n", stderr="")
+            if "pull" in args:
+                return MagicMock(returncode=0, stdout="Already up to date.", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = fake_run
+
         from himalaya_notify import update_self
         self.assertEqual(update_self(), 0)
 
     @patch("himalaya_notify.subprocess.run")
     @patch("himalaya_notify.shutil.which")
-    def test_update_self_git_failure(self, mock_which, mock_run):
+    def test_update_self_switches_to_main(self, mock_which, mock_run):
         mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Could not resolve host")
+        calls = []
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            if "status" in args:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if "rev-parse" in args:
+                return MagicMock(returncode=0, stdout="feat/other-branch\n", stderr="")
+            if "checkout" in args:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if "pull" in args:
+                return MagicMock(returncode=0, stdout="Fast-forward", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = fake_run
+
+        from himalaya_notify import update_self
+        self.assertEqual(update_self(), 0)
+        self.assertTrue(any("checkout" in call and "main" in call for call in calls))
+
+    @patch("himalaya_notify.subprocess.run")
+    @patch("himalaya_notify.shutil.which")
+    def test_update_self_dirty_tree_aborts(self, mock_which, mock_run):
+        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
+        mock_run.return_value = MagicMock(returncode=0, stdout=" M himalaya_notify.py\n", stderr="")
+        from himalaya_notify import update_self
+        self.assertEqual(update_self(), 1)
+
+    @patch("himalaya_notify.subprocess.run")
+    @patch("himalaya_notify.shutil.which")
+    def test_update_self_git_pull_failure(self, mock_which, mock_run):
+        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
+        def fake_run(args, **kwargs):
+            if "status" in args:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            if "rev-parse" in args:
+                return MagicMock(returncode=0, stdout="main\n", stderr="")
+            if "pull" in args:
+                return MagicMock(returncode=1, stdout="", stderr="Could not resolve host")
+            return MagicMock(returncode=0, stdout="", stderr="")
+        mock_run.side_effect = fake_run
+
         from himalaya_notify import update_self
         self.assertEqual(update_self(), 1)
 
